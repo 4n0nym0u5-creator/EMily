@@ -1,58 +1,49 @@
-export type GenerateStatus = { configured: boolean }
+import type { StyleId, ExpressionId, PoseId } from './aiPresets'
 
-async function postGenerate<T>(
-  path: string,
-  body: Record<string, unknown>,
-): Promise<T> {
-  const res = await fetch(path, {
+export interface GenerateStatus {
+  configured: boolean
+  mock: boolean
+}
+
+async function postGenerate<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  const response = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(120_000),
   })
-  const data = (await res.json()) as T & { error?: string }
-  if (!res.ok) {
-    throw new Error(data.error || `Request failed (${res.status})`)
+  let data: (T & { error?: string }) | null = null
+  try {
+    data = (await response.json()) as T & { error?: string }
+  } catch {
+    data = null
   }
-  return data
+  if (!response.ok) {
+    throw new Error(data?.error || 'The drawing did not work. You can try again.')
+  }
+  return data as T
 }
 
 export async function fetchGenerateStatus(): Promise<GenerateStatus> {
-  const res = await fetch('/api/generate-status')
-  if (!res.ok) return { configured: false }
-  return (await res.json()) as GenerateStatus
+  const response = await fetch('/api/generate-status')
+  if (!response.ok) return { configured: false, mock: false }
+  const data = (await response.json()) as Partial<GenerateStatus>
+  return { configured: Boolean(data.configured), mock: Boolean(data.mock) }
 }
 
-export async function generateCharacterFromReference(
-  referenceDataUrl: string,
-  prompt?: string,
-): Promise<{ imageDataUrl: string; prompt: string }> {
-  return postGenerate('/api/generate-character', {
-    referenceDataUrl,
-    prompt,
-  })
+export async function generateCharacterLook(input: {
+  referenceDataUrl: string
+  style: StyleId
+  expression: ExpressionId
+  pose: PoseId
+  note?: string
+}): Promise<{ imageDataUrl: string }> {
+  return postGenerate('/api/generate-character', input)
 }
 
-export async function generateCharacterPose(
-  characterDataUrl: string,
-  pose: string,
-): Promise<{ imageDataUrl: string; prompt: string }> {
-  return postGenerate('/api/generate-character-pose', {
-    referenceDataUrl: characterDataUrl,
-    prompt: pose,
-  })
-}
-
-export async function generateScene(
-  prompt: string,
-): Promise<{ imageDataUrl: string; prompt: string }> {
-  return postGenerate('/api/generate-scene', { prompt })
-}
-
-export function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result))
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(file)
-  })
+export async function generateSceneImage(input: {
+  prompt: string
+  referenceDataUrl?: string
+}): Promise<{ imageDataUrl: string; prompt: string }> {
+  return postGenerate('/api/generate-scene', input)
 }
