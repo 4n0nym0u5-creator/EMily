@@ -1,14 +1,60 @@
 import type { StyleId, ExpressionId, PoseId } from './aiPresets'
 
+const PASSCODE_KEY = 'emily-magic-word'
+const PASSCODE_HEADER = 'X-Emily-Passcode'
+
 export interface GenerateStatus {
   configured: boolean
   mock: boolean
+  needsPasscode: boolean
 }
 
-async function postGenerate<T>(path: string, body: Record<string, unknown>): Promise<T> {
-  const response = await fetch(path, {
+export class PasscodeError extends Error {
+  cancelled: boolean
+  constructor(message: string, cancelled = false) {
+    super(message)
+    this.name = 'PasscodeError'
+    this.cancelled = cancelled
+  }
+}
+
+type AskForWord = (retry: boolean) => Promise<string | null>
+
+let askForWord: AskForWord | null = null
+let needsPasscode = false
+
+export function registerMagicWord(ask: AskForWord | null) {
+  askForWord = ask
+}
+
+export function rememberedPasscode(): string {
+  try {
+    return localStorage.getItem(PASSCODE_KEY) ?? ''
+  } catch {
+    return ''
+  }
+}
+
+export function rememberPasscode(value: string) {
+  localStorage.setItem(PASSCODE_KEY, value.trim())
+}
+
+export function forgetPasscode() {
+  localStorage.removeItem(PASSCODE_KEY)
+}
+
+function apiUrl(path: string) {
+  const base = (import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
+  return `${base}${path}`
+}
+
+async function sendGenerate<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const word = rememberedPasscode()
+  if (word) headers[PASSCODE_HEADER] = word
+  const response = await fetch(apiUrl(path), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(120_000),
   })
@@ -18,17 +64,45 @@ async function postGenerate<T>(path: string, body: Record<string, unknown>): Pro
   } catch {
     data = null
   }
+  if (response.status === 401) {
+    forgetPasscode()
+    throw new PasscodeError(data?.error || 'That magic word did not work. Ask your grown-up to try again.')
+  }
   if (!response.ok) {
     throw new Error(data?.error || 'The drawing did not work. You can try again.')
   }
   return data as T
 }
 
+async function ensureWord(retry: boolean): Promise<void> {
+  if (!needsPasscode || rememberedPasscode()) return
+  if (!askForWord) throw new PasscodeError('Ask your grown-up for the magic word.', true)
+  const word = await askForWord(retry)
+  if (!word?.trim()) throw new PasscodeError('Ask your grown-up for the magic word.', true)
+  rememberPasscode(word)
+}
+
+async function postGenerate<T>(path: string, body: Record<string, unknown>): Promise<T> {
+  await ensureWord(false)
+  try {
+    return await sendGenerate(path, body)
+  } catch (error) {
+    if (!(error instanceof PasscodeError) || error.cancelled) throw error
+    forgetPasscode()
+    if (!askForWord) throw error
+    const word = await askForWord(true)
+    if (!word?.trim()) throw new PasscodeError(error.message, true)
+    rememberPasscode(word)
+    return sendGenerate(path, body)
+  }
+}
+
 export async function fetchGenerateStatus(): Promise<GenerateStatus> {
-  const response = await fetch('/api/generate-status')
-  if (!response.ok) return { configured: false, mock: false }
+  const response = await fetch(apiUrl('/api/generate-status'))
+  if (!response.ok) return { configured: false, mock: false, needsPasscode: false }
   const data = (await response.json()) as Partial<GenerateStatus>
-  return { configured: Boolean(data.configured), mock: Boolean(data.mock) }
+  needsPasscode = Boolean(data.needsPasscode)
+  return { configured: Boolean(data.configured), mock: Boolean(data.mock), needsPasscode: needsPasscode }
 }
 
 export interface GeneratedImage {

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { fetchGenerateStatus, type GenerateStatus } from '../lib/generateClient'
 
 export function useAiStatus(): GenerateStatus & { known: boolean } {
-  const [status, setStatus] = useState<GenerateStatus>({ configured: false, mock: false })
+  const [status, setStatus] = useState<GenerateStatus>({ configured: false, mock: false, needsPasscode: false })
   const [known, setKnown] = useState(false)
 
   useEffect(() => {
@@ -12,7 +12,7 @@ export function useAiStatus(): GenerateStatus & { known: boolean } {
         if (!cancelled) setStatus(next)
       })
       .catch(() => {
-        if (!cancelled) setStatus({ configured: false, mock: false })
+        if (!cancelled) setStatus({ configured: false, mock: false, needsPasscode: false })
       })
       .finally(() => {
         if (!cancelled) setKnown(true)

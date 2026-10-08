@@ -10,7 +10,7 @@ import {
   type StyleId,
 } from '../lib/aiPresets'
 import { applyLook, type LookResult } from '../lib/filters'
-import { generateCharacterLook, removeBackground } from '../lib/generateClient'
+import { generateCharacterLook, PasscodeError, removeBackground } from '../lib/generateClient'
 import { fileToDataUrl, imageFilesFromList } from '../lib/images'
 import { newId } from '../lib/ids'
 import { useClipboardImages } from '../hooks/useClipboardImages'
@@ -204,10 +204,11 @@ export function CharacterStudio({
       setAiResult(settled.src)
       if (settled.note) setMessage(settled.note)
     } catch (error) {
+      if (error instanceof PasscodeError && error.cancelled) return
       console.error(error)
       const text = error instanceof Error ? error.message : ''
       setMessage(
-        text.startsWith("Let's try a different idea")
+        text.startsWith("Let's try a different idea") || text.includes('magic word')
           ? text
           : 'That drawing did not work. Your photo is still here. You can use it as-is or try again.',
       )
@@ -247,9 +248,10 @@ export function CharacterStudio({
       }
       saveLook(src, pose.kind === 'photo' ? 'filtered' : pose.kind, `${pose.label} · see-through`, pose.filter, true, pose.sourceSrc)
     } catch (error) {
+      if (error instanceof PasscodeError && error.cancelled) return
       const text = error instanceof Error ? error.message : ''
       setMessage(
-        text.startsWith("Let's try a different idea")
+        text.startsWith("Let's try a different idea") || text.includes('magic word')
           ? text
           : 'That did not work. The look is still here.',
       )
@@ -668,10 +670,16 @@ function AiCard({
         </p>
       )}
       {ai.configured && ai.mock && (
-        <p>Practice mode is on, so this stays on the computer and does not call Venice or spend money. The picture will look like a pretend result.</p>
+        <p>
+          Practice mode is on, so this stays on the computer and does not call Venice or spend money. The picture will look like a pretend result.
+          {ai.needsPasscode ? ' The first time, ask your grown-up for the magic word.' : ''}
+        </p>
       )}
       {ai.configured && !ai.mock && (
-        <p>This sends the photo to Venice to draw a manga version. It can cost a little money on a grown-up's account. Nothing is sent until you tap the button.</p>
+        <p>
+          This sends the photo to Venice to draw a manga version. It can cost a little money on a grown-up's account. Nothing is sent until you tap the button.
+          {ai.needsPasscode ? ' The first time, ask your grown-up for the magic word.' : ''}
+        </p>
       )}
       <div className="chip-row">
         {STYLE_PRESETS.map((item) => (

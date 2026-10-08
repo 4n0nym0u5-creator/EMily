@@ -1,0 +1,19 @@
+name = "emily-ai"
+main = "index.ts"
+compatibility_date = "2026-10-08"
+
+# Safe mode stays off unless you change this var and redeploy.
+# The API key and the magic word are secrets, not vars:
+#   npx wrangler secret put VENICE_API_KEY
+#   npx wrangler secret put EMILY_PASSCODE
+[vars]
+VENICE_SAFE_MODE = "false"
+
+# Optional daily cap shared across Cloudflare locations.
+# The Worker already keeps a per-isolate limit (8 drawings / 10 minutes, 40 / day).
+# That memory resets when an isolate goes away. For a real daily cap:
+#   npx wrangler kv namespace create LIMITS
+# then uncomment and paste the id.
+# [[kv_namespaces]]
+# binding = "LIMITS"
+# id = "REPLACE_WITH_NAMESPACE_ID"

@@ -29,7 +29,7 @@ npm run preview
 2. Put a key from https://venice.ai/settings/api in `VENICE_API_KEY`.
 3. Restart `npm run dev`.
 
-The key is read only by the Vite server. It is not bundled into the page and it is not stored in the browser.
+The key is read only by the computer that draws: the Vite server locally, or the Cloudflare Worker when the public site is on. It is not bundled into the page and it is not stored in the browser.
 
 Optional settings in `.env`:
 
@@ -76,3 +76,42 @@ Stories, characters, and pictures are saved in this browser with IndexedDB, so r
 **Export backup** downloads one JSON file of the whole library, including the pictures. **Import backup** replaces what is on this device after a confirmation. Clearing the browser's site data deletes the studio unless that file was kept.
 
 A story can also be saved as PNG pictures (a zip when there is more than one page) or as a PDF for sharing or printing. See-through characters are stored as PNG so the empty background stays empty. Page pictures and PDFs draw that character on the paper, and they clip anything that sits outside a panel.
+
+## Publish it for Emily
+
+The public site is a static build on GitHub Pages: https://4n0nym0u5-creator.github.io/EMily/
+
+Drawings go to a Cloudflare Worker so the Venice key never sits in the page. Every drawing request must send `X-Emily-Passcode`. The first time she taps an AI button, EMily asks her to get the magic word from a grown-up and remembers it in this browser. A wrong word is cleared and she can ask again. Photos, stories, filters, the reader, and export work with no word and no network.
+
+### Worker
+
+From this folder:
+
+```bash
+npm run deploy:worker
+```
+
+That runs `npx wrangler deploy` with `worker/wrangler.toml` (Worker name `emily-ai`). The same commands from inside `worker/` are:
+
+```bash
+npx wrangler deploy
+npx wrangler secret put VENICE_API_KEY
+npx wrangler secret put EMILY_PASSCODE
+```
+
+`VENICE_SAFE_MODE` defaults to `false` in `worker/wrangler.toml`. Change that var and deploy again if you want blurring. Do not put the key or the magic word in the repo.
+
+The Worker allows browsers only from https://4n0nym0u5-creator.github.io, http://localhost:5173, and http://127.0.0.1:5173. It refuses a picture bigger than 12MB. Each isolate also stops at 8 drawings in 10 minutes and 40 in a day. That counter lives in memory, so it is not shared across Cloudflare locations and it resets when the isolate goes away. For a daily cap that is shared, create a KV namespace and uncomment the `LIMITS` binding in `worker/wrangler.toml`:
+
+```bash
+npx wrangler kv namespace create LIMITS
+```
+
+### Pages
+
+1. In the GitHub repo, open Settings → Pages → Build and deployment, and set Source to GitHub Actions.
+2. Deploy the Worker and copy its `workers.dev` URL.
+3. In the repo, open Settings → Secrets and variables → Actions → Variables, and set `VITE_API_BASE` to that URL, for example `https://emily-ai.<subdomain>.workers.dev`. This value is public. It is the only `VITE_` setting the Pages build needs. Do not add the Venice key or the magic word as a Pages secret.
+4. Push to `main`, or run the "Deploy GitHub Pages" workflow by hand. The workflow sets Vite's base to `/EMily/` so local `npm run dev` still uses `/`.
+
+Until `VITE_API_BASE` is set, the site still opens and every local tool works. The AI buttons stay off because there is no drawing server.

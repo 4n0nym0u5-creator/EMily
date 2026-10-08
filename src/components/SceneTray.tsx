@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { FILTERS } from '../lib/aiPresets'
 import { applyLook } from '../lib/filters'
-import { generateSceneImage } from '../lib/generateClient'
+import { generateSceneImage, PasscodeError } from '../lib/generateClient'
 import { fileToDataUrl, imageFilesFromList } from '../lib/images'
 import { newId } from '../lib/ids'
 import { trackPointerDrag } from '../lib/pointer'
@@ -89,10 +89,11 @@ export function SceneTray({ scenes, ai, onSave, onDelete, onPlace, onDragMove, o
       onPlace({ src: scene.src, role: 'scene', label: scene.name })
       setIncoming(null)
     } catch (error) {
+      if (error instanceof PasscodeError && error.cancelled) return
       console.error(error)
       const text = error instanceof Error ? error.message : ''
       setMessage(
-        text.startsWith("Let's try a different idea")
+        text.startsWith("Let's try a different idea") || text.includes('magic word')
           ? text
           : 'That background did not draw. You can still use your own picture.',
       )
@@ -224,9 +225,15 @@ export function SceneTray({ scenes, ai, onSave, onDelete, onPlace, onDragMove, o
           <p>
             Tapping the button sends the description{incoming ? ' and this photo' : ''} to Venice. It can cost a little
             money.
+            {ai.needsPasscode ? ' The first time, ask your grown-up for the magic word.' : ''}
           </p>
         )}
-        {ai.configured && ai.mock && <p>Practice mode is on, so this does not call Venice.</p>}
+        {ai.configured && ai.mock && (
+          <p>
+            Practice mode is on, so this does not call Venice.
+            {ai.needsPasscode ? ' The first time, ask your grown-up for the magic word.' : ''}
+          </p>
+        )}
         <div className="chip-row">
           {SCENE_PRESETS.map((preset) => (
             <button key={preset} type="button" className={`chip ${prompt === preset ? 'active' : ''}`} onClick={() => setPrompt(preset)}>

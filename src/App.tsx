@@ -3,6 +3,7 @@ import { CharacterStudio } from './components/CharacterStudio'
 import { ConfirmDialog } from './components/ConfirmDialog'
 import { Creator } from './components/Creator'
 import { Home } from './components/Home'
+import { MagicWordDialog } from './components/MagicWordDialog'
 import { Reader } from './components/Reader'
 import { Walkthrough } from './components/Walkthrough'
 import { useAiStatus } from './hooks/useAiStatus'
@@ -206,6 +207,7 @@ export default function App() {
         />
       )}
 
+      <MagicWordDialog />
       {toast && (
         <div className="toast" role="status">
           {toast}
