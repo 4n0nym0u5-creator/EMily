@@ -2,7 +2,7 @@
 
 EMily is a personal manga studio for Emily. She can turn photos and drawings into characters, build pages with panels, speech bubbles, and sound effects, then read the story like a book or save it to print.
 
-Photos stay in the browser on this device. They are sent to OpenAI only when someone taps a **Draw with AI** button, and only if an API key is configured on the computer running the app. There is no account and no analytics.
+Photos stay in the browser on this device. They are sent to [Venice AI](https://venice.ai) only when someone taps a **Draw with AI** or **Draw background** button, and only if `VENICE_API_KEY` is set on the computer running the app. There is no account and no analytics.
 
 ## Run it
 
@@ -23,24 +23,41 @@ npm run preview
 
 `npm run preview` can also draw with AI, because the same server plugin is included. A plain static host can open the built site, but the AI buttons stay off there.
 
-## Add an OpenAI key
+## Add a Venice key
 
 1. Copy `.env.example` to `.env`.
-2. Put a key from https://platform.openai.com/api-keys in `OPENAI_API_KEY`.
+2. Put a key from https://venice.ai/settings/api in `VENICE_API_KEY`.
 3. Restart `npm run dev`.
 
 The key is read only by the Vite server. It is not bundled into the page and it is not stored in the browser.
 
 Optional settings in `.env`:
 
-- `OPENAI_IMAGE_QUALITY=low` spends less than the default `medium`. `high` costs more.
-- `EMILY_MOCK_AI=1` is for development only. It turns the AI buttons on without calling OpenAI or spending money, and the app says practice mode is on.
+- `VENICE_IMAGE_MODEL` defaults to `wai-Illustrious`. That model draws text-only pictures (a background with no photo) through `POST /image/generate`.
+- `VENICE_EDIT_MODEL` defaults to `firered-image-edit`. A photo or drawing is sent as a reference through `POST /image/edit`, because `wai-Illustrious` cannot take a reference image. The trade-off is that the likeness follows the photo, while the anime look comes from the edit model rather than Illustrious.
+- `EMILY_MOCK_AI=1` is for development only. It turns the AI buttons on without calling Venice or spending money, and the app says practice mode is on.
+
+Safe mode is always on for every picture request. It is not a setting in the app. If Venice blurs the result or marks it as a violation, EMily does not show the picture. It asks her to try a different idea.
 
 ## What image generation costs
 
-Each AI button press creates one picture with `gpt-image-1`. The app asks for medium quality unless you change `OPENAI_IMAGE_QUALITY`, and it uses high input fidelity so the drawing can keep the face from the photo. That is more expensive than a plain text prompt.
+Each **Draw with AI** press edits one photo with `firered-image-edit`. Venice's docs price that edit at about US$0.04. A background with no photo uses `wai-Illustrious` through text-to-image, listed at about US$0.01. Prompts ask for a fully clothed, wholesome, all-ages drawing.
 
-OpenAI's prices change. Check the current image rates at https://platform.openai.com/docs/pricing and watch usage at https://platform.openai.com/usage. A grown-up should expect each picture to cost a small amount of money, often a few cents at medium quality, and more if quality is set to high.
+Prices change. Check https://docs.venice.ai/models/image and your usage in the Venice dashboard before drawing a lot.
+
+## Check it against a real key
+
+Leave `EMILY_MOCK_AI` unset. After the key is in `.env` and `npm run dev` has been restarted:
+
+```bash
+npm run venice:check
+```
+
+That only checks the text model. Then, in the browser:
+
+1. My characters, New character, add a photo, and use the crop or the whole picture.
+2. Give the character a name. Under Draw with AI, pick a style, expression, and pose, then tap **Draw with AI**. The photo goes to `firered-image-edit`. A kept drawing appears on the character sheet. A blurred result shows “Let's try a different idea” and does not show the picture.
+3. In a story, open Backgrounds, describe a place without attaching a photo, and tap **Draw background**. That call uses `wai-Illustrious` and does not send a picture.
 
 ## What's saved, and where
 

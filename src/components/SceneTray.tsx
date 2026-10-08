@@ -90,7 +90,12 @@ export function SceneTray({ scenes, ai, onSave, onDelete, onPlace, onDragMove, o
       setIncoming(null)
     } catch (error) {
       console.error(error)
-      setMessage('That background did not draw. You can still use your own picture.')
+      const text = error instanceof Error ? error.message : ''
+      setMessage(
+        text.startsWith("Let's try a different idea")
+          ? text
+          : 'That background did not draw. You can still use your own picture.',
+      )
     } finally {
       setBusy(null)
     }
@@ -210,12 +215,18 @@ export function SceneTray({ scenes, ai, onSave, onDelete, onPlace, onDragMove, o
       <section className={`ai-card ${ai.configured ? 'on' : 'off'}`}>
         <h3>Draw a background</h3>
         {ai.known && !ai.configured && (
-          <p>AI drawing is not turned on. You can still add your own photos and drawings.</p>
+          <p>
+            AI drawing is not turned on. You can still add your own photos and drawings. A grown-up can add a Venice key
+            if you want drawings later.
+          </p>
         )}
         {ai.configured && !ai.mock && (
-          <p>Tapping the button sends the description{incoming ? ' and this photo' : ''} to OpenAI. It can cost a little money.</p>
+          <p>
+            Tapping the button sends the description{incoming ? ' and this photo' : ''} to Venice. It can cost a little
+            money.
+          </p>
         )}
-        {ai.configured && ai.mock && <p>Practice mode is on, so this does not call OpenAI.</p>}
+        {ai.configured && ai.mock && <p>Practice mode is on, so this does not call Venice.</p>}
         <div className="chip-row">
           {SCENE_PRESETS.map((preset) => (
             <button key={preset} type="button" className={`chip ${prompt === preset ? 'active' : ''}`} onClick={() => setPrompt(preset)}>

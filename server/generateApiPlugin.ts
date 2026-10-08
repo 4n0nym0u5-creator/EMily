@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Buffer } from 'node:buffer'
 import { config as loadEnv } from 'dotenv'
-import OpenAI, { toFile } from 'openai'
 import type { Connect, Plugin } from 'vite'
+import { DIFFERENT_IDEA, editVeniceImage, generateVeniceImage, hasVeniceKey, type VeniceAspect } from './veniceClient.js'
 
 loadEnv()
 
@@ -48,12 +48,6 @@ function mockEnabled() {
   return process.env.EMILY_MOCK_AI === '1'
 }
 
-function imageQuality(): 'low' | 'medium' | 'high' {
-  const quality = process.env.OPENAI_IMAGE_QUALITY
-  if (quality === 'low' || quality === 'medium' || quality === 'high') return quality
-  return 'medium'
-}
-
 function pick(map: Record<string, string>, id: string | undefined, fallback: string) {
   if (id && map[id]) return map[id]
   return map[fallback] ?? fallback
@@ -94,18 +88,13 @@ function dataUrlToBuffer(dataUrl: string): { buffer: Buffer; mime: string } {
   }
 }
 
-function getClient(): OpenAI {
-  const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) throw new Error('AI drawing is not turned on yet.')
-  return new OpenAI({ apiKey })
-}
+const ALL_AGES = 'Fully clothed, wholesome, all-ages manga. No scary, violent, or adult content.'
 
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : 'The drawing did not work.'
-  if (/api[_ ]?key/i.test(message) || message.includes('OPENAI_API_KEY')) {
-    return 'AI drawing is not turned on yet.'
-  }
-  if (message.includes('too big') || message.includes('JPG or PNG')) return message
+  if (message.startsWith("Let's try a different idea")) return DIFFERENT_IDEA
+  if (/api[_ ]?key|authorization|bearer/i.test(message)) return 'AI drawing is not turned on yet.'
+  if (message.includes('too big') || message.includes('too small') || message.includes('JPG or PNG')) return message
   if (message.length > 180) return 'The drawing did not work. You can try again.'
   return message
 }
@@ -115,17 +104,45 @@ function characterPrompt(body: JsonBody) {
   const expression = pick(EXPRESSIONS, body.expression, 'smile')
   const pose = pick(POSES, body.pose, 'portrait')
   const note = cleanNote(body.note)
-  return `Transform this reference photo into a character drawing of the same person.
-Keep the same face shape, hair color, hair style, skin tone, age, and distinctive features so it clearly looks like them.
-Style: ${style}.
-Expression: ${expression}.
-Pose: ${pose}.
-${note ? `Extra note from the artist: ${note}.` : ''}
-Plain light background. No text, no watermark, no photo realism.`
+  return [
+    'Redraw this person as a manga character.',
+    'Keep the same face shape, hair color, hair style, skin tone, age, and distinctive features.',
+    ALL_AGES,
+    `Style: ${style}.`,
+    `Expression: ${expression}.`,
+    `Pose: ${pose}.`,
+    note ? `Extra note from the artist: ${note}.` : '',
+    'Plain light background. No text and no watermark.',
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 function scenePrompt(userPrompt: string) {
-  return `${userPrompt}. Japanese shonen manga background, dramatic composition, bold ink, no readable text, no watermarks, no prominent faces.`
+  return `${userPrompt}. Japanese manga background, bold ink, no readable text, no watermarks. ${ALL_AGES}`
+}
+
+function aspectForPose(pose: string | undefined): VeniceAspect {
+  return !pose || pose === 'portrait' ? '1:1' : '2:3'
+}
+
+function pixelCount(buffer: Buffer, mime: string): number | null {
+  if (mime.includes('png') && buffer.length >= 24 && buffer.toString('ascii', 1, 4) === 'PNG') {
+    return buffer.readUInt32BE(16) * buffer.readUInt32BE(20)
+  }
+  if ((mime.includes('jpeg') || mime.includes('jpg')) && buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let offset = 2
+    while (offset + 9 < buffer.length) {
+      if (buffer[offset] !== 0xff) return null
+      const marker = buffer[offset + 1]
+      const length = buffer.readUInt16BE(offset + 2)
+      if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+        return buffer.readUInt16BE(offset + 5) * buffer.readUInt16BE(offset + 7)
+      }
+      offset += 2 + length
+    }
+  }
+  return null
 }
 
 function mockScene(prompt: string) {
@@ -140,21 +157,13 @@ function mockScene(prompt: string) {
   return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
 }
 
-async function editImage(prompt: string, referenceDataUrl: string, size: '1024x1024' | '1024x1536') {
+async function editFromPhoto(prompt: string, referenceDataUrl: string, aspectRatio: VeniceAspect) {
   const { buffer, mime } = dataUrlToBuffer(referenceDataUrl)
-  const ext = mime.includes('png') ? 'png' : 'jpg'
-  const client = getClient()
-  const result = await client.images.edit({
-    model: 'gpt-image-1',
-    image: await toFile(buffer, `emily-ref.${ext}`, { type: mime }),
-    prompt,
-    input_fidelity: 'high',
-    size,
-    quality: imageQuality(),
-  })
-  const b64 = result.data?.[0]?.b64_json
-  if (!b64) throw new Error('The drawing did not come back. You can try again.')
-  return `data:image/png;base64,${b64}`
+  const pixels = pixelCount(buffer, mime)
+  if (pixels !== null && pixels < 65_536) {
+    throw new Error('That picture is too small to draw from. Try a bigger photo.')
+  }
+  return editVeniceImage(prompt, buffer.toString('base64'), aspectRatio)
 }
 
 function pathOf(url: string | undefined) {
@@ -169,7 +178,7 @@ function attach(middlewares: Connect.Server) {
     if (req.method === 'GET' && path === '/api/generate-status') {
       const mock = mockEnabled()
       return sendJson(res, 200, {
-        configured: Boolean(process.env.OPENAI_API_KEY) || mock,
+        configured: hasVeniceKey() || mock,
         mock,
       })
     }
@@ -195,20 +204,10 @@ function attach(middlewares: Connect.Server) {
           })
         }
         const prompt = scenePrompt(userPrompt)
-        if (body.referenceDataUrl) {
-          const imageDataUrl = await editImage(prompt, body.referenceDataUrl, '1024x1536')
-          return sendJson(res, 200, { imageDataUrl, prompt: userPrompt })
-        }
-        const client = getClient()
-        const result = await client.images.generate({
-          model: 'gpt-image-1',
-          prompt,
-          size: '1024x1536',
-          quality: imageQuality(),
-        })
-        const b64 = result.data?.[0]?.b64_json
-        if (!b64) return sendJson(res, 502, { error: 'The drawing did not come back. You can try again.' })
-        return sendJson(res, 200, { imageDataUrl: `data:image/png;base64,${b64}`, prompt: userPrompt })
+        const imageDataUrl = body.referenceDataUrl
+          ? await editFromPhoto(prompt, body.referenceDataUrl, '2:3')
+          : await generateVeniceImage(prompt)
+        return sendJson(res, 200, { imageDataUrl, prompt: userPrompt })
       }
 
       if (!body.referenceDataUrl) {
@@ -220,18 +219,17 @@ function attach(middlewares: Connect.Server) {
         path === '/api/generate-character-pose'
           ? characterPrompt({ ...body, pose: pose && POSES[pose] ? pose : 'stand', expression: body.expression })
           : characterPrompt(body)
-      const size = (pose && pose !== 'portrait' ? '1024x1536' : '1024x1024') as '1024x1024' | '1024x1536'
 
       if (mockEnabled()) {
         return sendJson(res, 200, { imageDataUrl: body.referenceDataUrl, prompt })
       }
 
-      const imageDataUrl = await editImage(prompt, body.referenceDataUrl, size)
-      return sendJson(res, 200, { imageDataUrl, prompt: body.pose || body.prompt || 'portrait' })
+      const imageDataUrl = await editFromPhoto(prompt, body.referenceDataUrl, aspectForPose(pose))
+      return sendJson(res, 200, { imageDataUrl, prompt })
     } catch (error) {
       const message = safeError(error)
       console.error('EMily image request failed:', message)
-      const status = message.includes('not turned on') ? 503 : 500
+      const status = message.includes('not turned on') ? 503 : message.startsWith("Let's try") ? 422 : 500
       return sendJson(res, status, { error: message })
     }
   })

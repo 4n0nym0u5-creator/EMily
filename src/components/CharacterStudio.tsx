@@ -182,7 +182,12 @@ export function CharacterStudio({
       setAiResult(result.imageDataUrl)
     } catch (error) {
       console.error(error)
-      setMessage('That drawing did not work. Your photo is still here. You can use it as-is or try again.')
+      const text = error instanceof Error ? error.message : ''
+      setMessage(
+        text.startsWith("Let's try a different idea")
+          ? text
+          : 'That drawing did not work. Your photo is still here. You can use it as-is or try again.',
+      )
     } finally {
       setBusy(null)
     }
@@ -572,14 +577,14 @@ function AiCard({
       {ai.known && !ai.configured && (
         <p>
           AI drawing is not turned on, and that is okay. Your photo, crop, and filters work right here.
-          A grown-up can add an OpenAI key on the computer that runs EMily if you want drawings later.
+          A grown-up can add a Venice key on the computer that runs EMily if you want drawings later.
         </p>
       )}
       {ai.configured && ai.mock && (
-        <p>Practice mode is on, so this stays on the computer and does not spend money. The picture will look like a pretend result.</p>
+        <p>Practice mode is on, so this stays on the computer and does not call Venice or spend money. The picture will look like a pretend result.</p>
       )}
       {ai.configured && !ai.mock && (
-        <p>This sends the photo to OpenAI to draw a manga version. It can cost a little money on a grown-up's account. Nothing is sent until you tap the button.</p>
+        <p>This sends the photo to Venice to draw a manga version. It can cost a little money on a grown-up's account. Nothing is sent until you tap the button.</p>
       )}
       <div className="chip-row">
         {STYLE_PRESETS.map((item) => (
