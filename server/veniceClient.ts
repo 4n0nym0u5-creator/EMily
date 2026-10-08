@@ -27,8 +27,15 @@ export function getVeniceClient(): OpenAI {
   return new OpenAI({ apiKey, baseURL: VENICE_BASE_URL })
 }
 
-export function veniceFlagged(headers: { get(name: string): string | null }): boolean {
-  return headers.get('x-venice-is-blurred') === 'true' || headers.get('x-venice-is-content-violation') === 'true'
+/** One switch for every picture request. Unset means off. */
+export function veniceSafeMode(): boolean {
+  const value = process.env.VENICE_SAFE_MODE?.trim().toLowerCase()
+  return value === '1' || value === 'true' || value === 'on' || value === 'yes'
+}
+
+export function veniceFlagged(headers: { get(name: string): string | null }, safeMode = veniceSafeMode()): boolean {
+  if (headers.get('x-venice-is-content-violation') === 'true') return true
+  return safeMode && headers.get('x-venice-is-blurred') === 'true'
 }
 
 function veniceKey(): string {
@@ -44,14 +51,15 @@ async function veniceFailure(response: Response): Promise<Error> {
   return new Error('The drawing did not work. You can try again.')
 }
 
-async function discardAndRejectIfFlagged(response: Response) {
-  if (!veniceFlagged(response.headers)) return
+async function discardAndRejectIfFlagged(response: Response, safeMode: boolean) {
+  if (!veniceFlagged(response.headers, safeMode)) return
   await response.arrayBuffer().catch(() => undefined)
   throw new Error(DIFFERENT_IDEA)
 }
 
 /** Text-only pictures. wai-Illustrious does not accept a reference photo. */
 export async function generateVeniceImage(prompt: string, width = 1024, height = 1024): Promise<string> {
+  const safeMode = veniceSafeMode()
   const response = await fetch(`${VENICE_BASE_URL}/image/generate`, {
     method: 'POST',
     headers: {
@@ -64,12 +72,12 @@ export async function generateVeniceImage(prompt: string, width = 1024, height =
       negative_prompt: 'nudity, violence, gore, scary, text, watermark, photograph',
       width,
       height,
-      safe_mode: true,
+      safe_mode: safeMode,
       format: 'png',
     }),
     signal: AbortSignal.timeout(120_000),
   })
-  await discardAndRejectIfFlagged(response)
+  await discardAndRejectIfFlagged(response, safeMode)
   if (!response.ok) throw await veniceFailure(response)
   const data = (await response.json()) as { images?: string[] }
   const image = data.images?.[0]
@@ -79,9 +87,10 @@ export async function generateVeniceImage(prompt: string, width = 1024, height =
 
 /**
  * Photo or drawing reference. FireRed returns raw PNG bytes, not JSON.
- * safe_mode is always true and is not taken from the browser.
+ * safe_mode comes from VENICE_SAFE_MODE and is not taken from the browser.
  */
 export async function editVeniceImage(prompt: string, imageBase64: string, aspectRatio: VeniceAspect = '1:1'): Promise<string> {
+  const safeMode = veniceSafeMode()
   const response = await fetch(`${VENICE_BASE_URL}/image/edit`, {
     method: 'POST',
     headers: {
@@ -92,13 +101,13 @@ export async function editVeniceImage(prompt: string, imageBase64: string, aspec
       model: VENICE_EDIT_MODEL,
       prompt: prompt.slice(0, FIRE_RED_PROMPT_LIMIT),
       image: imageBase64.replace(/\s/g, ''),
-      safe_mode: true,
+      safe_mode: safeMode,
       output_format: 'png',
       aspect_ratio: aspectRatio,
     }),
     signal: AbortSignal.timeout(120_000),
   })
-  await discardAndRejectIfFlagged(response)
+  await discardAndRejectIfFlagged(response, safeMode)
   if (!response.ok) throw await veniceFailure(response)
   const type = response.headers.get('content-type') ?? ''
   if (!type.startsWith('image/')) throw new Error('The drawing did not come back. You can try again.')

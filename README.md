@@ -35,9 +35,10 @@ Optional settings in `.env`:
 
 - `VENICE_IMAGE_MODEL` defaults to `wai-Illustrious`. That model draws text-only pictures (a background with no photo) through `POST /image/generate`.
 - `VENICE_EDIT_MODEL` defaults to `firered-image-edit`. A photo or drawing is sent as a reference through `POST /image/edit`, because `wai-Illustrious` cannot take a reference image. The trade-off is that the likeness follows the photo, while the anime look comes from the edit model rather than Illustrious.
+- `VENICE_SAFE_MODE` defaults to `false`. Set it to `true` to send `safe_mode: true` on every picture request.
 - `EMILY_MOCK_AI=1` is for development only. It turns the AI buttons on without calling Venice or spending money, and the app says practice mode is on.
 
-Safe mode is always on for every picture request. It is not a setting in the app. If Venice blurs the result or marks it as a violation, EMily does not show the picture. It asks her to try a different idea.
+`VENICE_SAFE_MODE` defaults to `false`, so picture requests send `safe_mode: false`. Set it to `true` and restart the dev server to turn Venice blurring back on. It is not a control in the app. If Venice marks a result as a content violation, or blurs it while safe mode is on, EMily does not show the picture. It asks her to try a different idea. Every prompt still asks for a fully clothed, wholesome, all-ages drawing.
 
 ## What image generation costs
 
