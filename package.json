@@ -7,9 +7,15 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "venice:check": "node scripts/venice-check.ts",
+    "test:ai": "node --experimental-strip-types scripts/emily-ai-check.ts",
+    "deploy:worker": "npx wrangler deploy --config worker/wrangler.toml"
   },
   "dependencies": {
+    "@fontsource/bangers": "^5.3.0",
+    "@fontsource/dela-gothic-one": "^5.3.0",
+    "@fontsource/zen-maru-gothic": "^5.3.0",
     "openai": "^7.30.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",

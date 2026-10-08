@@ -1,0 +1,4 @@
+# Copy to worker/.dev.vars for `npx wrangler dev`. Never commit .dev.vars.
+VENICE_API_KEY=
+EMILY_PASSCODE=
+VENICE_SAFE_MODE=false

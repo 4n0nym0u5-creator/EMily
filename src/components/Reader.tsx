@@ -1,180 +1,182 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import type { CanvasElement, Story } from '../types'
+import { useCallback, useEffect, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import type { ReadDirection, Story } from '../types'
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../types'
+import { Icon } from './Icon'
+import { PageFrame } from './PageFrame'
+import { ShareActions } from './ShareActions'
 
 interface ReaderProps {
   story: Story
   onBack: () => void
   onEdit: () => void
+  onDirection: (direction: ReadDirection) => void
 }
 
-export function Reader({ story, onBack, onEdit }: ReaderProps) {
-  const pages = useMemo(
-    () => story.pages.filter((p) => p.elements.length > 0),
-    [story.pages],
-  )
+export function Reader({ story, onBack, onEdit, onDirection }: ReaderProps) {
+  const pages = story.pages.filter((page) => page.elements.length > 0)
   const [index, setIndex] = useState(0)
-  const [animKey, setAnimKey] = useState(0)
-  const [zoomed, setZoomed] = useState(false)
-
+  const [offset, setOffset] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const [turn, setTurn] = useState<'next' | 'prev' | null>(null)
+  const [share, setShare] = useState(false)
+  const direction = story.readDirection === 'rtl' ? 'rtl' : 'ltr'
   const page = pages[index]
 
-  const go = (next: number) => {
-    if (next < 0 || next >= pages.length) return
-    setIndex(next)
-    setAnimKey((k) => k + 1)
-    setZoomed(false)
-    window.setTimeout(() => setZoomed(true), 40)
-  }
+  const go = useCallback((delta: number) => {
+    setTurn(delta > 0 ? 'next' : 'prev')
+    setIndex((current) => {
+      const next = current + delta
+      if (next < 0 || next >= pages.length) return current
+      return next
+    })
+  }, [pages.length])
 
   useEffect(() => {
-    setZoomed(true)
-  }, [])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'ArrowRight' || e.key === ' ' || e.key === 'Enter') {
-        e.preventDefault()
-        go(index + 1)
-      } else if (e.key === 'ArrowLeft') {
-        e.preventDefault()
-        go(index - 1)
-      } else if (e.key === 'Escape') {
-        onBack()
-      }
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+      const forward = direction === 'rtl' ? 'ArrowLeft' : 'ArrowRight'
+      const back = direction === 'rtl' ? 'ArrowRight' : 'ArrowLeft'
+      if (event.key === forward || event.key === ' ') {
+        event.preventDefault()
+        go(1)
+      } else if (event.key === back) {
+        event.preventDefault()
+        go(-1)
+      } else if (event.key === 'Escape') onBack()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [index, pages.length])
+  }, [direction, go, onBack])
 
-  if (pages.length === 0) {
+  if (!page) {
     return (
       <div className="reader reader-empty">
-        <p>This story has no drawn pages yet.</p>
+        <p>This story has no pages to read yet.</p>
         <button type="button" className="btn btn-primary" onClick={onEdit}>
-          Open Creator
+          Make a page
         </button>
       </div>
     )
   }
 
-  const sorted = [...page.elements].sort((a, b) => {
-    if (a.kind === 'panel' && b.kind !== 'panel') return -1
-    if (b.kind === 'panel' && a.kind !== 'panel') return 1
-    return a.zIndex - b.zIndex
-  })
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest('button, a, input, textarea')) return
+    setDragging(true)
+    event.currentTarget.setPointerCapture(event.pointerId)
+    event.currentTarget.dataset.startX = String(event.clientX)
+    event.currentTarget.dataset.startY = String(event.clientY)
+  }
+
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging) return
+    const startX = Number(event.currentTarget.dataset.startX ?? event.clientX)
+    setOffset(event.clientX - startX)
+  }
+
+  const onPointerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!dragging) return
+    const startX = Number(event.currentTarget.dataset.startX ?? event.clientX)
+    const startY = Number(event.currentTarget.dataset.startY ?? event.clientY)
+    const dx = event.clientX - startX
+    const dy = event.clientY - startY
+    setDragging(false)
+    setOffset(0)
+    if (Math.abs(dx) < 12 && Math.abs(dy) < 12) {
+      const rect = event.currentTarget.getBoundingClientRect()
+      const ratio = (event.clientX - rect.left) / rect.width
+      if (ratio < 0.28) go(direction === 'rtl' ? 1 : -1)
+      else if (ratio > 0.72) go(direction === 'rtl' ? -1 : 1)
+      return
+    }
+    if (Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy)) {
+      const forward = direction === 'rtl' ? dx > 0 : dx < 0
+      go(forward ? 1 : -1)
+    }
+  }
 
   return (
-    <div className="reader">
-      <div className="reader-spotlight" aria-hidden />
+    <div className={`reader direction-${direction}`}>
       <header className="reader-top">
         <button type="button" className="btn btn-ghost" onClick={onBack}>
-          ← Library
+          <Icon name="back" /> Library
         </button>
         <div className="reader-meta">
           <h1>{story.title}</h1>
-          <p>
-            Page {index + 1} / {pages.length}
+          <p aria-live="polite">
+            Page {index + 1} of {pages.length}
           </p>
         </div>
-        <button type="button" className="btn btn-ghost" onClick={onEdit}>
-          Edit
-        </button>
+        <div className="reader-top-actions">
+          <button type="button" className="btn" onClick={onEdit}>
+            Edit
+          </button>
+          <button type="button" className="btn" onClick={() => setShare((open) => !open)}>
+            Share
+          </button>
+        </div>
       </header>
 
-      <button
-        type="button"
-        className="reader-stage"
-        onClick={() => go(index + 1)}
-        aria-label="Next page"
-      >
-        <div
-          key={animKey}
-          className={`reader-page ${zoomed ? 'in' : ''}`}
-          style={{ aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}` }}
-        >
-          <div className="manga-paper" />
-          {sorted.map((el) => (
-            <ReaderElement key={el.id} el={el} />
-          ))}
+      {share && (
+        <div className="share-pop">
+          <ShareActions story={story} />
+          <button
+            type="button"
+            className="btn"
+            onClick={() => onDirection(direction === 'rtl' ? 'ltr' : 'rtl')}
+          >
+            {direction === 'rtl' ? 'Reading right to left' : 'Reading left to right'}
+          </button>
         </div>
-        {index < pages.length - 1 ? (
-          <span className="reader-cue">Tap / → for the next cliffhanger</span>
-        ) : (
-          <span className="reader-cue end">To be continued… draw the next page!</span>
-        )}
-      </button>
+      )}
+
+      <div
+        className="reader-stage"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        <div className="reader-book">
+          <div
+            key={page.id}
+            className={`reader-page ${dragging ? 'dragging' : ''} ${turn === 'next' ? 'turn-next' : ''} ${turn === 'prev' ? 'turn-prev' : ''}`}
+            style={{
+              aspectRatio: `${CANVAS_WIDTH} / ${CANVAS_HEIGHT}`,
+              transform: dragging ? `translateX(${offset}px)` : undefined,
+            }}
+          >
+            <div className="manga-paper" />
+            <PageFrame elements={page.elements} />
+          </div>
+        </div>
+        <p className={`reader-cue ${index === pages.length - 1 ? 'end' : ''}`}>
+          {index === pages.length - 1 ? 'To be continued…' : 'Swipe or tap the edge for the next page'}
+        </p>
+      </div>
 
       <footer className="reader-controls">
-        <button
-          type="button"
-          className="btn"
-          disabled={index === 0}
-          onClick={() => go(index - 1)}
-        >
-          ← Prev
+        <button type="button" className="btn" disabled={index === 0} onClick={() => go(-1)}>
+          Previous
         </button>
         <div className="reader-dots">
-          {pages.map((p, i) => (
+          {pages.map((item, dotIndex) => (
             <button
-              key={p.id}
+              key={item.id}
               type="button"
-              className={`dot ${i === index ? 'active' : ''}`}
-              aria-label={`Go to page ${i + 1}`}
-              onClick={() => go(i)}
+              className={`dot ${dotIndex === index ? 'active' : ''}`}
+              aria-label={`Go to page ${dotIndex + 1}`}
+              onClick={() => {
+                setTurn(dotIndex > index ? 'next' : 'prev')
+                setIndex(dotIndex)
+              }}
             />
           ))}
         </div>
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={index >= pages.length - 1}
-          onClick={() => go(index + 1)}
-        >
-          Next →
+        <button type="button" className="btn btn-primary" disabled={index >= pages.length - 1} onClick={() => go(1)}>
+          Next
         </button>
       </footer>
-    </div>
-  )
-}
-
-function ReaderElement({ el }: { el: CanvasElement }) {
-  const style: CSSProperties = {
-    left: `${(el.x / CANVAS_WIDTH) * 100}%`,
-    top: `${(el.y / CANVAS_HEIGHT) * 100}%`,
-    width: `${(el.width / CANVAS_WIDTH) * 100}%`,
-    height: `${(el.height / CANVAS_HEIGHT) * 100}%`,
-    zIndex: el.zIndex + (el.kind === 'panel' ? 0 : 10),
-  }
-
-  if (el.kind === 'panel') {
-    return <div className="el panel readonly" style={style} />
-  }
-  if (el.kind === 'image') {
-    return (
-      <div className={`el image readonly ${el.panelId ? 'in-panel' : ''}`} style={style}>
-        <img src={el.src} alt="" draggable={false} />
-      </div>
-    )
-  }
-  if (el.kind === 'bubble') {
-    return (
-      <div className={`el bubble style-${el.style} readonly`} style={style}>
-        <p>{el.text}</p>
-        <span className="bubble-tail" aria-hidden />
-      </div>
-    )
-  }
-  return (
-    <div
-      className="el sfx readonly"
-      style={{
-        ...style,
-        color: el.color,
-        transform: `rotate(${el.rotation}deg)`,
-      }}
-    >
-      <span>{el.text}</span>
     </div>
   )
 }

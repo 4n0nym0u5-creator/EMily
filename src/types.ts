@@ -1,5 +1,9 @@
 export type AppMode = 'home' | 'creator' | 'reader'
-export type CreatorTool = 'select' | 'bubble' | 'sfx' | 'panel'
+export type CreatorTool = 'select' | 'speech' | 'thought' | 'sfx' | 'panel'
+export type ReadDirection = 'ltr' | 'rtl'
+export type MangaFilterId = 'original' | 'grey' | 'contrast' | 'ink' | 'screentone'
+export type PoseKind = 'photo' | 'filtered' | 'ai'
+export type ImageRole = 'character' | 'scene' | 'upload'
 
 export interface Rect {
   x: number
@@ -8,13 +12,27 @@ export interface Rect {
   height: number
 }
 
+export interface FrameView {
+  fit: 'cover' | 'contain'
+  scale: number
+  x: number
+  y: number
+}
+
 export interface ImageElement extends Rect {
   id: string
   kind: 'image'
   src: string
   panelId: string | null
   zIndex: number
-  role?: 'character' | 'scene' | 'upload'
+  rotation: number
+  flipX: boolean
+  flipY: boolean
+  role: ImageRole
+  aspect?: number
+  frame?: FrameView
+  characterId?: string
+  poseId?: string
 }
 
 export interface BubbleElement extends Rect {
@@ -40,11 +58,7 @@ export interface PanelElement extends Rect {
   zIndex: number
 }
 
-export type CanvasElement =
-  | ImageElement
-  | BubbleElement
-  | SfxElement
-  | PanelElement
+export type CanvasElement = ImageElement | BubbleElement | SfxElement | PanelElement
 
 export interface Page {
   id: string
@@ -59,14 +73,30 @@ export interface Story {
   pages: Page[]
   createdAt: number
   updatedAt: number
+  readDirection: ReadDirection
+}
+
+export interface CharacterPose {
+  id: string
+  label: string
+  src: string
+  sourceSrc: string
+  kind: PoseKind
+  filter?: MangaFilterId
+  cutout?: boolean
+  createdAt: number
 }
 
 export interface CharacterAsset {
   id: string
   name: string
+  bio: string
   referenceSrc: string
   portraitSrc: string
+  mainPoseId: string
+  poses: CharacterPose[]
   createdAt: number
+  updatedAt: number
 }
 
 export interface SceneAsset {
@@ -74,16 +104,26 @@ export interface SceneAsset {
   name: string
   prompt: string
   src: string
+  source: 'upload' | 'ai'
   createdAt: number
 }
 
 export interface Library {
-  version: 2
+  version: 3
   stories: Story[]
   characters: CharacterAsset[]
   scenes: SceneAsset[]
 }
 
+export interface AssetDrag {
+  src: string
+  role: 'character' | 'scene'
+  label: string
+  characterId?: string
+  poseId?: string
+}
+
 export const CANVAS_WIDTH = 720
 export const CANVAS_HEIGHT = 1020
-export const STORAGE_KEY = 'emily-manga-library-v1'
+export const LIBRARY_VERSION = 3
+export const LEGACY_STORAGE_KEY = 'emily-manga-library-v1'

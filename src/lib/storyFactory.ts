@@ -18,5 +18,15 @@ export function createStory(title = 'My Haikyuu Story'): Story {
     pages: [createEmptyPage('Page 1')],
     createdAt: now,
     updatedAt: now,
+    readDirection: 'ltr',
+  }
+}
+
+export function duplicatePage(page: Page, title: string): Page {
+  return {
+    id: newId(),
+    title,
+    updatedAt: Date.now(),
+    elements: page.elements.map((element) => ({ ...element, id: newId() })),
   }
 }
