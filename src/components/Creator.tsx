@@ -6,7 +6,7 @@ import {
   duplicateElement,
   fitImageToPanel,
   flipElement,
-  largestPanel,
+  panelForImage,
   placeAsset,
   removeElement,
   replacePageElements,
@@ -336,6 +336,9 @@ export function Creator({
       )}
 
       {tool === 'panel' && <p className="draw-hint">Drag on the page to draw a frame. Tap Move when you are done.</p>}
+      {selected?.kind === 'image' && selected.panelId && (
+        <p className="draw-hint">Drag to slide the picture. Pinch, or tap Bigger, to zoom. The frame hides anything past the border.</p>
+      )}
       {notice && <p className="asset-error">{notice}</p>}
 
       {selected && page && (
@@ -375,18 +378,33 @@ export function Creator({
               </button>
             </>
           )}
-          {selected.kind === 'image' && largestPanel(page.elements) && (
-            <button
-              type="button"
-              className="btn btn-small"
-              onClick={() => {
-                const panel = largestPanel(page.elements)
-                if (!panel || selected.kind !== 'image') return
-                patchSelected(() => fitImageToPanel(selected, panel))
-              }}
-            >
-              Fit panel
-            </button>
+          {selected.kind === 'image' && panelForImage(page.elements, selected) && (
+            <>
+              <button
+                type="button"
+                className="btn btn-small"
+                onClick={() => {
+                  if (selected.kind !== 'image') return
+                  const panel = panelForImage(page.elements, selected)
+                  if (!panel) return
+                  patchSelected(() => fitImageToPanel(selected, panel, 'cover'))
+                }}
+              >
+                Fill frame
+              </button>
+              <button
+                type="button"
+                className="btn btn-small"
+                onClick={() => {
+                  if (selected.kind !== 'image') return
+                  const panel = panelForImage(page.elements, selected)
+                  if (!panel) return
+                  patchSelected(() => fitImageToPanel(selected, panel, 'contain'))
+                }}
+              >
+                Fit whole image
+              </button>
+            </>
           )}
           {(selected.kind === 'bubble' || selected.kind === 'sfx') && (
             <button type="button" className="btn btn-small" onClick={() => setEditingId(selected.id)}>

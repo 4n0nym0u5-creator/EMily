@@ -350,6 +350,12 @@ img { max-width: 100%; }
 .sheet { position: sticky; bottom: 0; z-index: 18; }
 
 .el { position: absolute; }
+.panel-clip { position: absolute; overflow: hidden; pointer-events: none; }
+.panel-clip .el { pointer-events: auto; }
+.panel-clip > .resize-handle { z-index: 40; right: 8px; bottom: 8px; }
+.look-preview.checker img, .pose-chip img, .pose-board img {
+  background: repeating-conic-gradient(#f4efe6 0% 25%, #fff 0% 50%) 50% / 18px 18px;
+}
 .el.image { overflow: visible; }
 .el.image img { width: 100%; height: 100%; display: block; pointer-events: none; }
 .el.image.selected, .el.bubble.selected, .el.sfx.selected, .el.panel.selected { outline: 3px solid var(--court); outline-offset: 2px; }

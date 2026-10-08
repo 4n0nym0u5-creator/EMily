@@ -2,7 +2,14 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Buffer } from 'node:buffer'
 import { config as loadEnv } from 'dotenv'
 import type { Connect, Plugin } from 'vite'
-import { DIFFERENT_IDEA, editVeniceImage, generateVeniceImage, hasVeniceKey, type VeniceAspect } from './veniceClient.js'
+import {
+  DIFFERENT_IDEA,
+  editVeniceImage,
+  generateVeniceImage,
+  hasVeniceKey,
+  removeVeniceBackground,
+  type VeniceAspect,
+} from './veniceClient.js'
 
 loadEnv()
 
@@ -37,11 +44,13 @@ const POSES: Record<string, string> = {
 
 type JsonBody = {
   referenceDataUrl?: string
+  imageDataUrl?: string
   prompt?: string
   style?: string
   expression?: string
   pose?: string
   note?: string
+  transparent?: boolean
 }
 
 function mockEnabled() {
@@ -104,6 +113,7 @@ function characterPrompt(body: JsonBody) {
   const expression = pick(EXPRESSIONS, body.expression, 'smile')
   const pose = pick(POSES, body.pose, 'portrait')
   const note = cleanNote(body.note)
+  const seeThrough = body.transparent !== false
   return [
     'Redraw this person as a manga character.',
     'Keep the same face shape, hair color, hair style, skin tone, age, and distinctive features.',
@@ -112,7 +122,10 @@ function characterPrompt(body: JsonBody) {
     `Expression: ${expression}.`,
     `Pose: ${pose}.`,
     note ? `Extra note from the artist: ${note}.` : '',
-    'Plain light background. No text and no watermark.',
+    seeThrough
+      ? 'Plain flat white background, one solid color, no scenery, no ground, and no shadows on the backdrop.'
+      : 'Plain light background.',
+    'No text and no watermark.',
   ]
     .filter(Boolean)
     .join(' ')
@@ -170,6 +183,23 @@ function pathOf(url: string | undefined) {
   return url?.split('?')[0] ?? ''
 }
 
+function isDifferentIdea(error: unknown) {
+  return error instanceof Error && error.message.startsWith("Let's try a different idea")
+}
+
+/** Venice cutout when asked. A violation still hides the picture. Any other miss falls back to a local cutout. */
+async function finishCutout(imageDataUrl: string, transparent: boolean) {
+  if (!transparent) return { imageDataUrl, localCutout: false }
+  try {
+    const { buffer } = dataUrlToBuffer(imageDataUrl)
+    const cut = await removeVeniceBackground(buffer.toString('base64'))
+    return { imageDataUrl: cut, localCutout: false }
+  } catch (error) {
+    if (isDifferentIdea(error)) throw error
+    return { imageDataUrl, localCutout: true }
+  }
+}
+
 function attach(middlewares: Connect.Server) {
   middlewares.use(async (req, res, next) => {
     const path = pathOf(req.url)
@@ -187,13 +217,24 @@ function attach(middlewares: Connect.Server) {
     if (
       path !== '/api/generate-character' &&
       path !== '/api/generate-scene' &&
-      path !== '/api/generate-character-pose'
+      path !== '/api/generate-character-pose' &&
+      path !== '/api/remove-background'
     ) {
       return next()
     }
 
     try {
       const body = await readJson(req)
+      if (path === '/api/remove-background') {
+        const image = body.imageDataUrl || body.referenceDataUrl
+        if (!image) return sendJson(res, 400, { error: 'Choose a picture first.' })
+        if (mockEnabled() || !hasVeniceKey()) {
+          return sendJson(res, 200, { imageDataUrl: image, localCutout: true })
+        }
+        const finished = await finishCutout(image, true)
+        return sendJson(res, 200, finished)
+      }
+
       if (path === '/api/generate-scene') {
         const userPrompt = body.prompt?.trim()
         if (!userPrompt) return sendJson(res, 400, { error: 'Describe the background first.' })
@@ -220,12 +261,14 @@ function attach(middlewares: Connect.Server) {
           ? characterPrompt({ ...body, pose: pose && POSES[pose] ? pose : 'stand', expression: body.expression })
           : characterPrompt(body)
 
+      const seeThrough = body.transparent !== false
       if (mockEnabled()) {
-        return sendJson(res, 200, { imageDataUrl: body.referenceDataUrl, prompt })
+        return sendJson(res, 200, { imageDataUrl: body.referenceDataUrl, prompt, localCutout: seeThrough })
       }
 
-      const imageDataUrl = await editFromPhoto(prompt, body.referenceDataUrl, aspectForPose(pose))
-      return sendJson(res, 200, { imageDataUrl, prompt })
+      const edited = await editFromPhoto(prompt, body.referenceDataUrl, aspectForPose(pose))
+      const finished = await finishCutout(edited, seeThrough)
+      return sendJson(res, 200, { ...finished, prompt })
     } catch (error) {
       const message = safeError(error)
       console.error('EMily image request failed:', message)

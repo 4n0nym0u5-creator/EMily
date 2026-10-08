@@ -73,6 +73,16 @@ function normalizeElement(raw: unknown): CanvasElement | null {
     }
     if (typeof raw.characterId === 'string') image.characterId = raw.characterId
     if (typeof raw.poseId === 'string') image.poseId = raw.poseId
+    if (typeof raw.aspect === 'number' && raw.aspect > 0) image.aspect = raw.aspect
+    if (raw.frame && typeof raw.frame === 'object') {
+      const frame = raw.frame as { fit?: unknown; scale?: unknown; x?: unknown; y?: unknown }
+      image.frame = {
+        fit: frame.fit === 'cover' ? 'cover' : 'contain',
+        scale: Math.min(4, Math.max(0.4, num(frame.scale, 1))),
+        x: num(frame.x),
+        y: num(frame.y),
+      }
+    }
     return image
   }
 

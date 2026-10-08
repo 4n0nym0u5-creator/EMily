@@ -1,5 +1,6 @@
-import type { BubbleElement, CanvasElement, ImageElement, Page, SfxElement } from '../types'
+import type { BubbleElement, CanvasElement, ImageElement, Page, PanelElement, SfxElement } from '../types'
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../types'
+import { imageDrawBox } from './frame'
 import { loadImage } from './images'
 
 const INK = '#101820'
@@ -30,10 +31,12 @@ export async function renderPageCanvas(page: Page, scale = 2): Promise<HTMLCanva
     }),
   )
 
+  const panels = page.elements.filter((element): element is PanelElement => element.kind === 'panel')
   for (const element of images) {
     const image = loaded.get(element.src)
     if (!image) continue
-    drawImageElement(context, element, image, scale)
+    const panel = element.panelId ? panels.find((item) => item.id === element.panelId) : undefined
+    drawImageElement(context, element, image, scale, panel)
   }
 
   for (const element of page.elements) {
@@ -56,15 +59,24 @@ function drawImageElement(
   element: ImageElement,
   image: HTMLImageElement,
   scale: number,
+  panel?: PanelElement,
 ) {
-  const boxW = element.width * scale
-  const boxH = element.height * scale
+  const box = imageDrawBox(element, panel)
   context.save()
-  context.translate((element.x + element.width / 2) * scale, (element.y + element.height / 2) * scale)
+  if (panel) {
+    context.beginPath()
+    context.rect(panel.x * scale, panel.y * scale, panel.width * scale, panel.height * scale)
+    context.clip()
+  }
+  context.translate((box.x + box.width / 2) * scale, (box.y + box.height / 2) * scale)
   context.rotate((element.rotation * Math.PI) / 180)
   context.scale(element.flipX ? -1 : 1, element.flipY ? -1 : 1)
-  const fitted = fitBox(image.width, image.height, boxW, boxH, element.role === 'scene' ? 'cover' : 'contain')
-  context.drawImage(image, -fitted.width / 2, -fitted.height / 2, fitted.width, fitted.height)
+  if (element.frame && panel) {
+    context.drawImage(image, (-box.width / 2) * scale, (-box.height / 2) * scale, box.width * scale, box.height * scale)
+  } else {
+    const fitted = fitBox(image.width, image.height, box.width * scale, box.height * scale, element.role === 'scene' ? 'cover' : 'contain')
+    context.drawImage(image, -fitted.width / 2, -fitted.height / 2, fitted.width, fitted.height)
+  }
   context.restore()
 }
 

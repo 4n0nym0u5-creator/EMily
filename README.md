@@ -2,7 +2,7 @@
 
 EMily is a personal manga studio for Emily. She can turn photos and drawings into characters, build pages with panels, speech bubbles, and sound effects, then read the story like a book or save it to print.
 
-Photos stay in the browser on this device. They are sent to [Venice AI](https://venice.ai) only when someone taps a **Draw with AI** or **Draw background** button, and only if `VENICE_API_KEY` is set on the computer running the app. There is no account and no analytics.
+Photos stay in the browser on this device. They are sent to [Venice AI](https://venice.ai) only when someone taps **Draw with AI**, **Draw background**, or **Remove background** while AI drawing is on, and only if `VENICE_API_KEY` is set on the computer running the app. There is no account and no analytics.
 
 ## Run it
 
@@ -42,9 +42,17 @@ Optional settings in `.env`:
 
 ## What image generation costs
 
-Each **Draw with AI** press edits one photo with `firered-image-edit`. Venice's docs price that edit at about US$0.04. A background with no photo uses `wai-Illustrious` through text-to-image, listed at about US$0.01. Prompts ask for a fully clothed, wholesome, all-ages drawing.
+Each **Draw with AI** press edits one photo with `firered-image-edit`. Venice's docs price that edit at about US$0.04. If **See-through background** is on (it starts on), EMily then calls `POST /image/background-remove` so the character comes back as a PNG with a real transparent background. Venice prices that cutout, model `bria-bg-remover`, at about US$0.03. The request sends only the picture. It does not send a model id or `safe_mode`. A background with no photo uses `wai-Illustrious` through text-to-image, listed at about US$0.01. Prompts ask for a fully clothed, wholesome, all-ages drawing. See-through drawings also ask for a plain flat white background, so a backup cutout on this device still has a solid color to remove.
+
+If the cutout call fails for any reason other than a content violation, EMily does not spend a retry. It removes a flat background on this device instead, and she can tidy the edges with **Cut out background**. A content violation still hides the picture and shows “Let's try a different idea.” Turning **See-through background** off skips the extra call and keeps the background the drawing came with.
+
+**Remove background** on a saved look does the same cutout and keeps the old look. With no key, and in practice mode (`EMILY_MOCK_AI=1`), that button only uses the on-device cutout.
 
 Prices change. Check https://docs.venice.ai/models/image and your usage in the Venice dashboard before drawing a lot.
+
+## Pictures inside a frame
+
+A picture dropped into a panel can be slid and zoomed. Drag moves it. Pinch with two fingers, the corner handle, or **Bigger** / **Smaller** changes the size. **Fill frame** covers the panel. **Fit whole image** shows the whole picture inside it. Anything past the panel border is hidden in the editor, the reader, PNG export, and PDF export. The slide and zoom are saved with the page, and undo puts them back.
 
 ## Check it against a real key
 
@@ -57,8 +65,9 @@ npm run venice:check
 That only checks the text model. Then, in the browser:
 
 1. My characters, New character, add a photo, and use the crop or the whole picture.
-2. Give the character a name. Under Draw with AI, pick a style, expression, and pose, then tap **Draw with AI**. The photo goes to `firered-image-edit`. A kept drawing appears on the character sheet. A blurred result shows “Let's try a different idea” and does not show the picture.
+2. Give the character a name. Under Draw with AI, leave **See-through background** on, pick a style, expression, and pose, then tap **Draw with AI**. The photo goes to `firered-image-edit`, then to background removal. A kept drawing appears on the character sheet with a checkerboard behind the empty parts. A blurred or violating result shows “Let's try a different idea” and does not show the picture. **Remove background** on an existing look sends that look through the same cutout.
 3. In a story, open Backgrounds, describe a place without attaching a photo, and tap **Draw background**. That call uses `wai-Illustrious` and does not send a picture.
+4. Place the character in a panel, tap **Fill frame**, and drag the picture. The edges stay inside the frame on the page, in the reader, and in a saved PNG or PDF.
 
 ## What's saved, and where
 
@@ -66,4 +75,4 @@ Stories, characters, and pictures are saved in this browser with IndexedDB, so r
 
 **Export backup** downloads one JSON file of the whole library, including the pictures. **Import backup** replaces what is on this device after a confirmation. Clearing the browser's site data deletes the studio unless that file was kept.
 
-A story can also be saved as PNG pictures (a zip when there is more than one page) or as a PDF for sharing or printing.
+A story can also be saved as PNG pictures (a zip when there is more than one page) or as a PDF for sharing or printing. See-through characters are stored as PNG so the empty background stays empty. Page pictures and PDFs draw that character on the paper, and they clip anything that sits outside a panel.

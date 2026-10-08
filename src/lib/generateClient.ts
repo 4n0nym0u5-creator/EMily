@@ -31,14 +31,25 @@ export async function fetchGenerateStatus(): Promise<GenerateStatus> {
   return { configured: Boolean(data.configured), mock: Boolean(data.mock) }
 }
 
+export interface GeneratedImage {
+  imageDataUrl: string
+  localCutout?: boolean
+  prompt?: string
+}
+
 export async function generateCharacterLook(input: {
   referenceDataUrl: string
   style: StyleId
   expression: ExpressionId
   pose: PoseId
   note?: string
-}): Promise<{ imageDataUrl: string }> {
+  transparent?: boolean
+}): Promise<GeneratedImage> {
   return postGenerate('/api/generate-character', input)
+}
+
+export async function removeBackground(imageDataUrl: string): Promise<GeneratedImage> {
+  return postGenerate('/api/remove-background', { imageDataUrl })
 }
 
 export async function generateSceneImage(input: {

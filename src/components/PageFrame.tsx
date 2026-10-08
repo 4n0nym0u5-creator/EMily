@@ -1,6 +1,7 @@
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from 'react'
 import type { BubbleElement, CanvasElement, ImageElement, PanelElement, SfxElement } from '../types'
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from '../types'
+import { imageDrawBox } from '../lib/frame'
 
 interface PageFrameProps {
   elements: CanvasElement[]
@@ -35,38 +36,51 @@ export function PageFrame({
     .filter((element): element is BubbleElement | SfxElement => element.kind === 'bubble' || element.kind === 'sfx')
     .sort((a, b) => a.zIndex - b.zIndex)
 
+  const framed = panels
+    .map((panel) => ({ panel, images: images.filter((image) => image.panelId === panel.id) }))
+    .filter((group) => group.images.length > 0)
+  const loose = images.filter((image) => !panels.some((panel) => panel.id === image.panelId))
+
   return (
     <>
-      {images.map((element) => {
-        const selected = element.id === selectedId
-        return (
-          <div
-            key={element.id}
-            className={`el image ${selected ? 'selected' : ''}`}
-            style={boxStyle(element, element.zIndex)}
-            onPointerDown={interactive ? (event) => onElementPointerDown?.(event, element) : undefined}
-            onPointerUp={interactive ? (event) => onElementPointerUp?.(event, element) : undefined}
-          >
-            <img
-              src={element.src}
-              alt=""
-              draggable={false}
-              style={{
-                objectFit: element.role === 'scene' ? 'cover' : 'contain',
-                transform: `scale(${element.flipX ? -1 : 1}, ${element.flipY ? -1 : 1}) rotate(${element.rotation}deg)`,
+      {framed.map(({ panel, images: group }) => (
+        <div key={panel.id} className="panel-clip" style={boxStyle(panel, Math.max(...group.map((image) => image.zIndex)))}>
+          {group.map((element) => (
+            <ImageEl
+              key={element.id}
+              element={element}
+              panel={panel}
+              selected={element.id === selectedId}
+              interactive={interactive}
+              onElementPointerDown={onElementPointerDown}
+              onElementPointerUp={onElementPointerUp}
+              onResizePointerDown={onResizePointerDown}
+            />
+          ))}
+          {interactive && selectedId && group.some((image) => image.id === selectedId) && (
+            <button
+              type="button"
+              className="resize-handle"
+              aria-label="Resize picture in frame"
+              onPointerDown={(event) => {
+                const image = group.find((item) => item.id === selectedId)
+                if (image) onResizePointerDown?.(event, image)
               }}
             />
-            {interactive && selected && (
-              <button
-                type="button"
-                className="resize-handle"
-                aria-label="Resize"
-                onPointerDown={(event) => onResizePointerDown?.(event, element)}
-              />
-            )}
-          </div>
-        )
-      })}
+          )}
+        </div>
+      ))}
+      {loose.map((element) => (
+        <ImageEl
+          key={element.id}
+          element={element}
+          selected={element.id === selectedId}
+          interactive={interactive}
+          onElementPointerDown={onElementPointerDown}
+          onElementPointerUp={onElementPointerUp}
+          onResizePointerDown={onResizePointerDown}
+        />
+      ))}
 
       {panels.map((element, index) => {
         const selected = element.id === selectedId
@@ -174,6 +188,61 @@ export function PageFrame({
 
       {draftPanel && <div className="el panel draft" style={boxStyle({ ...draftPanel, zIndex: 60 }, 60)} />}
     </>
+  )
+}
+
+function ImageEl({
+  element,
+  panel,
+  selected,
+  interactive,
+  onElementPointerDown,
+  onElementPointerUp,
+  onResizePointerDown,
+}: {
+  element: ImageElement
+  panel?: PanelElement
+  selected: boolean
+  interactive: boolean
+  onElementPointerDown?: (event: ReactPointerEvent, element: CanvasElement) => void
+  onElementPointerUp?: (event: ReactPointerEvent, element: CanvasElement) => void
+  onResizePointerDown?: (event: ReactPointerEvent, element: CanvasElement) => void
+}) {
+  const box = imageDrawBox(element, panel)
+  const style: CSSProperties = panel
+    ? {
+        left: `${((box.x - panel.x) / panel.width) * 100}%`,
+        top: `${((box.y - panel.y) / panel.height) * 100}%`,
+        width: `${(box.width / panel.width) * 100}%`,
+        height: `${(box.height / panel.height) * 100}%`,
+        zIndex: element.zIndex,
+      }
+    : boxStyle(element, element.zIndex)
+  return (
+    <div
+      className={`el image ${selected ? 'selected' : ''}`}
+      style={style}
+      onPointerDown={interactive ? (event) => onElementPointerDown?.(event, element) : undefined}
+      onPointerUp={interactive ? (event) => onElementPointerUp?.(event, element) : undefined}
+    >
+      <img
+        src={element.src}
+        alt=""
+        draggable={false}
+        style={{
+          objectFit: element.frame ? 'fill' : element.role === 'scene' ? 'cover' : 'contain',
+          transform: `scale(${element.flipX ? -1 : 1}, ${element.flipY ? -1 : 1}) rotate(${element.rotation}deg)`,
+        }}
+      />
+      {interactive && selected && !panel && (
+        <button
+          type="button"
+          className="resize-handle"
+          aria-label="Resize"
+          onPointerDown={(event) => onResizePointerDown?.(event, element)}
+        />
+      )}
+    </div>
   )
 }
 

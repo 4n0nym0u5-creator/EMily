@@ -12,6 +12,13 @@ export interface Rect {
   height: number
 }
 
+export interface FrameView {
+  fit: 'cover' | 'contain'
+  scale: number
+  x: number
+  y: number
+}
+
 export interface ImageElement extends Rect {
   id: string
   kind: 'image'
@@ -22,6 +29,8 @@ export interface ImageElement extends Rect {
   flipX: boolean
   flipY: boolean
   role: ImageRole
+  aspect?: number
+  frame?: FrameView
   characterId?: string
   poseId?: string
 }

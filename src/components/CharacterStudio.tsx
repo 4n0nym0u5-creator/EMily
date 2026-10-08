@@ -10,7 +10,7 @@ import {
   type StyleId,
 } from '../lib/aiPresets'
 import { applyLook, type LookResult } from '../lib/filters'
-import { generateCharacterLook } from '../lib/generateClient'
+import { generateCharacterLook, removeBackground } from '../lib/generateClient'
 import { fileToDataUrl, imageFilesFromList } from '../lib/images'
 import { newId } from '../lib/ids'
 import { useClipboardImages } from '../hooks/useClipboardImages'
@@ -62,6 +62,7 @@ export function CharacterStudio({
   const [expressionId, setExpressionId] = useState<ExpressionId>('smile')
   const [poseId, setPoseId] = useState<PoseId>('portrait')
   const [note, setNote] = useState('')
+  const [seeThrough, setSeeThrough] = useState(true)
   const [aiResult, setAiResult] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -167,9 +168,28 @@ export function CharacterStudio({
     setStep('sheet')
   }
 
+  const settleCutout = async (imageDataUrl: string, localCutout: boolean | undefined) => {
+    if (!localCutout) return { src: imageDataUrl, cutout: seeThrough, note: null as string | null }
+    const look = await applyLook(imageDataUrl, { filter: 'original', cutout: true, maxEdge: 1200 })
+    if (look.cutout === 'applied') {
+      return {
+        src: look.url,
+        cutout: true,
+        note: ai.mock
+          ? null
+          : 'The see-through step ran on this device. If the edges look rough, try Cut out background.',
+      }
+    }
+    return {
+      src: imageDataUrl,
+      cutout: false,
+      note: 'I could not make the background see-through. You can still keep the picture, or use Cut out background on a flatter photo.',
+    }
+  }
+
   const drawWithAi = async (reference: string) => {
     if (!ai.configured) return
-    setBusy('Drawing…')
+    setBusy('Drawing… this can take a little while')
     setMessage(null)
     try {
       const result = await generateCharacterLook({
@@ -178,8 +198,11 @@ export function CharacterStudio({
         expression: expressionId,
         pose: poseId,
         note,
+        transparent: seeThrough,
       })
-      setAiResult(result.imageDataUrl)
+      const settled = await settleCutout(result.imageDataUrl, result.localCutout)
+      setAiResult(settled.src)
+      if (settled.note) setMessage(settled.note)
     } catch (error) {
       console.error(error)
       const text = error instanceof Error ? error.message : ''
@@ -187,6 +210,48 @@ export function CharacterStudio({
         text.startsWith("Let's try a different idea")
           ? text
           : 'That drawing did not work. Your photo is still here. You can use it as-is or try again.',
+      )
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const removeLookBackground = async (pose: CharacterPose) => {
+    setBusy('Removing the background…')
+    setMessage(null)
+    try {
+      let src = pose.src
+      let applied = false
+      if (ai.configured) {
+        const result = await removeBackground(pose.src)
+        if (!result.localCutout) {
+          src = result.imageDataUrl
+          applied = true
+        } else {
+          const look = await applyLook(result.imageDataUrl, { filter: 'original', cutout: true, maxEdge: 1200 })
+          if (look.cutout === 'applied') {
+            src = look.url
+            applied = true
+          }
+        }
+      } else {
+        const look = await applyLook(pose.src, { filter: 'original', cutout: true, maxEdge: 1200 })
+        if (look.cutout === 'applied') {
+          src = look.url
+          applied = true
+        }
+      }
+      if (!applied) {
+        setMessage('I could not find a plain background. The look is still here.')
+        return
+      }
+      saveLook(src, pose.kind === 'photo' ? 'filtered' : pose.kind, `${pose.label} · see-through`, pose.filter, true, pose.sourceSrc)
+    } catch (error) {
+      const text = error instanceof Error ? error.message : ''
+      setMessage(
+        text.startsWith("Let's try a different idea")
+          ? text
+          : 'That did not work. The look is still here.',
       )
     } finally {
       setBusy(null)
@@ -212,7 +277,7 @@ export function CharacterStudio({
           <Icon name="back" /> Back
         </button>
         <h2>{character ? character.name : 'New character'}</h2>
-        <p className="privacy-line">Pictures stay on this device unless you tap Draw with AI.</p>
+        <p className="privacy-line">Pictures stay on this device unless you tap Draw with AI or Remove background.</p>
       </header>
 
       <div className="studio-body">
@@ -390,11 +455,13 @@ export function CharacterStudio({
               expressionId={expressionId}
               poseId={poseId}
               note={note}
+              seeThrough={seeThrough}
               result={aiResult}
               onStyle={setStyleId}
               onExpression={setExpressionId}
               onPose={setPoseId}
               onNote={setNote}
+              onSeeThrough={setSeeThrough}
               onDraw={() => void drawWithAi(croppedSrc)}
               onKeep={() => {
                 if (!aiResult) return
@@ -403,7 +470,7 @@ export function CharacterStudio({
                   'ai',
                   `${presetLabel(EXPRESSION_PRESETS, expressionId)} · ${presetLabel(POSE_PRESETS, poseId)}`,
                   undefined,
-                  undefined,
+                  seeThrough,
                   croppedSrc,
                 )
               }}
@@ -429,6 +496,12 @@ export function CharacterStudio({
               Save name and bio
             </button>
             <p className="sidebar-label">Looks</p>
+            <p className="asset-help">
+              Remove background makes a new see-through copy and keeps the old look.
+              {ai.configured && !ai.mock
+                ? ' That sends the picture to Venice and can cost a little extra.'
+                : ' It tries on this device.'}
+            </p>
             <ul className="pose-board">
               {character.poses.map((pose) => (
                 <li key={pose.id} className={pose.id === character.mainPoseId ? 'main' : ''}>
@@ -437,6 +510,14 @@ export function CharacterStudio({
                   <div className="dialog-actions">
                     <button type="button" className="btn btn-small" onClick={() => makeMain(character, pose, onSave, setCharacter)}>
                       {pose.id === character.mainPoseId ? 'Main look' : 'Make main'}
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-small"
+                      disabled={Boolean(busy)}
+                      onClick={() => void removeLookBackground(pose)}
+                    >
+                      Remove background
                     </button>
                     <button
                       type="button"
@@ -459,11 +540,13 @@ export function CharacterStudio({
               expressionId={expressionId}
               poseId={poseId}
               note={note}
+              seeThrough={seeThrough}
               result={aiResult}
               onStyle={setStyleId}
               onExpression={setExpressionId}
               onPose={setPoseId}
               onNote={setNote}
+              onSeeThrough={setSeeThrough}
               onDraw={() => void drawWithAi(character.referenceSrc)}
               onKeep={() => {
                 if (!aiResult) return
@@ -472,7 +555,7 @@ export function CharacterStudio({
                   'ai',
                   `${presetLabel(EXPRESSION_PRESETS, expressionId)} · ${presetLabel(POSE_PRESETS, poseId)}`,
                   undefined,
-                  undefined,
+                  seeThrough,
                   character.referenceSrc,
                 )
               }}
@@ -546,11 +629,13 @@ function AiCard({
   expressionId,
   poseId,
   note,
+  seeThrough,
   result,
   onStyle,
   onExpression,
   onPose,
   onNote,
+  onSeeThrough,
   onDraw,
   onKeep,
   onClear,
@@ -561,11 +646,13 @@ function AiCard({
   expressionId: ExpressionId
   poseId: PoseId
   note: string
+  seeThrough: boolean
   result: string | null
   onStyle: (id: StyleId) => void
   onExpression: (id: ExpressionId) => void
   onPose: (id: PoseId) => void
   onNote: (note: string) => void
+  onSeeThrough: (value: boolean) => void
   onDraw: () => void
   onKeep: () => void
   onClear: () => void
@@ -611,11 +698,29 @@ function AiCard({
         <span>Anything to add?</span>
         <input className="text-input" maxLength={180} value={note} placeholder="Jersey number, glasses, team colors" disabled={!ai.configured} onChange={(event) => onNote(event.target.value)} />
       </label>
+      <button
+        type="button"
+        className={`chip ${seeThrough ? 'active' : ''}`}
+        aria-pressed={seeThrough}
+        disabled={!ai.configured || Boolean(busy)}
+        onClick={() => onSeeThrough(!seeThrough)}
+      >
+        See-through background
+      </button>
+      {ai.configured && (
+        <p className="asset-help">
+          {seeThrough
+            ? ai.mock
+              ? 'See-through background is on. Practice mode cuts the background out on this device.'
+              : 'See-through background is on. After the drawing, Venice removes the background too. That is a small extra charge. Turn this off to keep the background.'
+            : 'See-through background is off, so the drawing keeps its background.'}
+        </p>
+      )}
       <button type="button" className="btn btn-primary" disabled={!ai.configured || Boolean(busy)} onClick={onDraw}>
-        {busy ? 'Drawing… this can take a little while' : 'Draw with AI'}
+        {busy ?? 'Draw with AI'}
       </button>
       {result && (
-        <div className="look-preview">
+        <div className={`look-preview ${seeThrough ? 'checker' : ''}`}>
           <img src={result} alt="AI drawing preview" />
           <div className="dialog-actions">
             <button type="button" className="btn btn-primary" onClick={onKeep}>

@@ -116,3 +116,31 @@ export async function editVeniceImage(prompt: string, imageBase64: string, aspec
   const mime = type.split(';')[0] || 'image/png'
   return `data:${mime};base64,${bytes.toString('base64')}`
 }
+
+/**
+ * Cut a picture out onto a transparent PNG.
+ * POST /image/background-remove takes only the image (no model, no safe_mode).
+ * A content violation still hides the picture. Other failures are for the caller to fall back from.
+ */
+export async function removeVeniceBackground(imageBase64: string): Promise<string> {
+  const safeMode = veniceSafeMode()
+  const response = await fetch(`${VENICE_BASE_URL}/image/background-remove`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${veniceKey()}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      image: imageBase64.replace(/\s/g, ''),
+    }),
+    signal: AbortSignal.timeout(120_000),
+  })
+  await discardAndRejectIfFlagged(response, safeMode)
+  if (!response.ok) throw await veniceFailure(response)
+  const type = response.headers.get('content-type') ?? ''
+  const bytes = Buffer.from(await response.arrayBuffer())
+  const png = bytes.length >= 8 && bytes[0] === 0x89 && bytes.toString('ascii', 1, 4) === 'PNG'
+  if (!type.startsWith('image/') && !png) throw new Error('The see-through step did not come back. You can try again.')
+  if (bytes.length < 32) throw new Error('The see-through step did not come back. You can try again.')
+  return `data:image/png;base64,${bytes.toString('base64')}`
+}

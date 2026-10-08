@@ -1,4 +1,5 @@
 import { newId } from './ids'
+import { defaultFrame, withFrame } from './frame'
 import { clampRectInside, findPanelAt, insetRect } from './geometry'
 import { LAYOUTS } from './layouts'
 import type {
@@ -19,6 +20,15 @@ export function nextZ(elements: CanvasElement[]): number {
 
 export function panelsOf(elements: CanvasElement[]): PanelElement[] {
   return elements.filter((element): element is PanelElement => element.kind === 'panel')
+}
+
+export function panelForImage(elements: CanvasElement[], image: ImageElement): PanelElement | null {
+  const panels = panelsOf(elements)
+  if (image.panelId) {
+    const own = panels.find((panel) => panel.id === image.panelId)
+    if (own) return own
+  }
+  return largestPanel(elements)
 }
 
 export function largestPanel(elements: CanvasElement[]): PanelElement | null {
@@ -137,9 +147,9 @@ export function placeAsset(
   if (input.role === 'scene') {
     const target = panel ?? (panels[0] ? largestPanel(elements) : null)
     const box = target
-      ? insetRect(target, 8)
+      ? { x: target.x, y: target.y, width: target.width, height: target.height }
       : insetRect({ x: 0, y: 0, width: CANVAS_WIDTH, height: CANVAS_HEIGHT }, 28)
-    return {
+    const scene: ImageElement = {
       id: newId(),
       kind: 'image',
       src: input.src,
@@ -150,7 +160,9 @@ export function placeAsset(
       flipX: false,
       flipY: false,
       role: 'scene',
+      aspect,
     }
+    return target ? withFrame(scene, target, { fit: 'cover', scale: 1, x: 0, y: 0 }) : scene
   }
 
   const baseHeight = panel ? panel.height * 0.86 : CANVAS_HEIGHT * 0.34
@@ -180,7 +192,7 @@ export function placeAsset(
 
   const stagger = point ? 0 : (elements.filter((element) => element.kind === 'image').length % 4) * 16
 
-  return {
+  const placed: ImageElement = {
     id: newId(),
     kind: 'image',
     src: input.src,
@@ -194,12 +206,23 @@ export function placeAsset(
     flipX: false,
     flipY: false,
     role: input.role,
+    aspect,
     characterId: input.characterId,
     poseId: input.poseId,
   }
+  return panel ? withFrame(placed, panel, defaultFrame(placed)) : placed
 }
 
 export function scaleElement(element: CanvasElement, factor: number): CanvasElement {
+  if (element.kind === 'image' && element.frame) {
+    const scale = Math.min(4, Math.max(0.4, element.frame.scale * factor))
+    const ratio = scale / Math.max(0.05, element.frame.scale)
+    const cx = element.x + element.width / 2
+    const cy = element.y + element.height / 2
+    const width = element.width * ratio
+    const height = element.height * ratio
+    return { ...element, frame: { ...element.frame, scale }, width, height, x: cx - width / 2, y: cy - height / 2 }
+  }
   const width = Math.min(CANVAS_WIDTH * 1.4, Math.max(48, element.width * factor))
   const height = Math.min(CANVAS_HEIGHT * 1.4, Math.max(48, element.height * factor))
   const cx = element.x + element.width / 2
@@ -255,26 +278,8 @@ export function changeLayer(
   )
 }
 
-export function fitImageToPanel(element: ImageElement, panel: PanelElement): ImageElement {
-  const box = insetRect(panel, 8)
-  if (element.role === 'scene') {
-    return { ...element, ...box, panelId: panel.id }
-  }
-  const aspect = element.width / Math.max(1, element.height)
-  let height = box.height * 0.92
-  let width = height * aspect
-  if (width > box.width) {
-    width = box.width
-    height = width / aspect
-  }
-  return {
-    ...element,
-    width,
-    height,
-    x: box.x + (box.width - width) / 2,
-    y: box.y + box.height - height,
-    panelId: panel.id,
-  }
+export function fitImageToPanel(element: ImageElement, panel: PanelElement, fit: 'cover' | 'contain'): ImageElement {
+  return withFrame(element, panel, { fit, scale: 1, x: 0, y: 0 })
 }
 
 export function pageTitle(page: Page, index: number): string {

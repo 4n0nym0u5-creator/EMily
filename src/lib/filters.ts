@@ -135,19 +135,25 @@ function buildCutoutMask(pixels: Uint8ClampedArray, width: number, height: numbe
 
 function applyMask(pixels: Uint8ClampedArray, mask: Uint8Array, width: number, height: number) {
   const alpha = new Uint8ClampedArray(mask.length)
+  const radius = 3
   for (let index = 0; index < mask.length; index++) {
     alpha[index] = mask[index] ? 0 : pixels[index * 4 + 3]
   }
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
       const index = y * width + x
-      if (mask[index]) continue
-      let near = 0
-      if (mask[index - 1]) near += 1
-      if (mask[index + 1]) near += 1
-      if (mask[index - width]) near += 1
-      if (mask[index + width]) near += 1
-      if (near) alpha[index] = Math.round(alpha[index] * (1 - near * 0.18))
+      if (mask[index] || alpha[index] === 0) continue
+      let nearest = radius + 1
+      for (let dy = -radius; dy <= radius; dy++) {
+        const ny = y + dy
+        if (ny < 0 || ny >= height) continue
+        for (let dx = -radius; dx <= radius; dx++) {
+          const nx = x + dx
+          if (nx < 0 || nx >= width || !mask[ny * width + nx]) continue
+          nearest = Math.min(nearest, Math.hypot(dx, dy))
+        }
+      }
+      if (nearest <= radius) alpha[index] = Math.round(alpha[index] * (nearest / (radius + 0.35)))
     }
   }
   for (let index = 0; index < mask.length; index++) pixels[index * 4 + 3] = alpha[index]
